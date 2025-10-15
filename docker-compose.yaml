@@ -1,0 +1,84 @@
+services:
+  spark-master:
+    image: apache/spark:3.5.7
+    platform: linux/amd64 
+    command: >
+      bash -c "
+        /opt/spark/sbin/start-master.sh &&
+        tail -f /dev/null
+      "
+    environment:
+      - SPARK_MODE=master
+      - SPARK_MASTER_HOST=0.0.0.0
+      - SPARK_MASTER_PORT=7077
+      - SPARK_MASTER_WEBUI_PORT=8080
+      - AWS_PROFILE=${AWS_PROFILE_NAME}
+      - AWS_REGION=${AWS_REGION}
+    ports:
+      - "8080:8080" # Spark Master Web UI
+      - "7077:7077" # Spark Master Port
+    volumes:
+      - ~/.aws:/root/.aws:ro # 로컬 AWS credentials 마운트
+      - ./jars:/opt/spark/extra-jars
+    networks:
+      - spark-network
+
+  spark-worker:
+    image: apache/spark:3.5.7
+    platform: linux/amd64 
+    command: >
+      bash -c "
+        /opt/spark/sbin/start-worker.sh spark://spark-master:7077 &&
+        tail -f /dev/null
+      "
+    environment:
+      - SPARK_WORKER_CORES=2
+      - SPARK_WORKER_MEMORY=2G
+      - AWS_PROFILE=${AWS_PROFILE_NAME}
+      - AWS_REGION=${AWS_REGION}
+    depends_on:
+      - spark-master
+    volumes:
+      - ~/.aws:/root/.aws:ro
+      - ./jars:/opt/spark/extra-jars
+    networks:
+      - spark-network
+
+  jupyter:
+    image: apache/spark:3.5.7
+    platform: linux/amd64 
+    container_name: jupyter
+    hostname: jupyter
+    user: root
+    command: >
+      bash -c "
+        apt-get update && apt-get install -y unzip curl less groff && \
+        curl 'https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip' -o '/tmp/awscliv2.zip' && \
+        unzip /tmp/awscliv2.zip -d /tmp && /tmp/aws/install && \
+        pip3 install --no-cache-dir jupyterlab pandas pyarrow boto3 pyspark && \
+        jupyter lab --ip=0.0.0.0 --port=8888 --no-browser --allow-root --NotebookApp.token=''
+      "
+    environment:
+      - PYSPARK_PYTHON=python3
+      - PYSPARK_DRIVER_PYTHON=jupyter
+      - PYSPARK_DRIVER_PYTHON_OPTS=lab --ip=0.0.0.0 --port=8888 --no-browser --allow-root
+      - AWS_PROFILE=${AWS_PROFILE_NAME}
+      - AWS_REGION=${AWS_REGION}
+      - SPARK_MASTER=spark://spark-master:7077
+      - HOME=/root
+    working_dir: /opt/workspace
+    volumes:
+      - ./workspace:/opt/workspace
+      - ~/.aws:/root/.aws:ro
+      - ./jars:/opt/spark/extra-jars
+    ports:
+      - "8888:8888"
+    depends_on:
+      - spark-master
+    networks:
+      - spark-network
+
+
+networks:
+  spark-network:
+    driver: bridge
