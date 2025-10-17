@@ -1,3 +1,3 @@
 *.jar
 .env
-spark-warehouse/*
+spark-events/*
