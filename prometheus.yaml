@@ -1,0 +1,13 @@
+global:
+  scrape_interval: 15s # 메트릭 수집 간격
+
+scrape_configs:
+- job_name: 'spark-master'
+  static_configs:
+  - targets: [ 'spark-master:8080' ]
+  metrics_path: '/metrics/master'
+
+- job_name: 'spark-workers'
+  static_configs:
+  - targets: [ 'spark-worker-01:8081', 'spark-worker-02:8082' ]
+  metrics_path: '/metrics/worker'
