@@ -1,3 +1,4 @@
 *.jar
 .env
 spark-events/*
+workspace/.*

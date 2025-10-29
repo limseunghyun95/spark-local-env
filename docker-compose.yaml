@@ -1,118 +1,98 @@
+
+x-spark-worker-common: &spark-worker-common
+  image: apache/spark:3.5.7
+  platform: linux/amd64
+  command: >
+    bash -c "
+      /opt/spark/sbin/start-worker.sh spark://spark-master:7077 &&
+      tail -f /dev/null
+    "
+  environment: &spark-worker-env
+    SPARK_MODE: worker
+    SPARK_WORKER_CORES: 2
+    SPARK_WORKER_MEMORY: 2G
+    SPARK_PUBLIC_DNS: localhost
+    AWS_PROFILE: ${AWS_PROFILE_NAME}
+    AWS_REGION: ${AWS_REGION}
+    SPARK_METRICS_ON: true
+  volumes:
+    - ~/.aws:/root/.aws:ro
+    - ./jars:/opt/spark/extra-jars
+    - ./conf/spark-metrics.properties:/opt/spark/conf/metrics.properties
+    - ./spark-warehouse:/opt/spark/spark-warehouse
+    - ./spark-events:/opt/spark/events
+    - ./conf/spark-defaults.conf:/opt/spark/conf/spark-defaults.conf
+  networks:
+    - spark-network
+
 services:
   spark-master:
     image: apache/spark:3.5.7
-    platform: linux/amd64 
+    platform: linux/amd64
     command: >
       bash -c "
         /opt/spark/sbin/start-master.sh &&
         tail -f /dev/null
       "
     environment:
-      - SPARK_MODE=master
-      - SPARK_MASTER_HOST=0.0.0.0
-      - SPARK_MASTER_PORT=7077
-      - SPARK_MASTER_WEBUI_PORT=8080
-      - AWS_PROFILE=${AWS_PROFILE_NAME}
-      - AWS_REGION=${AWS_REGION}
-      - SPARK_METRICS_ON=true
+      SPARK_MODE: master
+      SPARK_MASTER_PORT: 7077
+      SPARK_MASTER_WEBUI_PORT: 8080
     ports:
-      - "8080:8080" # Spark Master Web UIb
-      - "7077:7077" # Spark Master Port
+      - "8080:8080"  # Spark master UI
+      - "7077:7077"  # Spark master service port
     volumes:
-      - ~/.aws:/root/.aws:ro
       - ./jars:/opt/spark/extra-jars
-      - ./conf/spark-metrics.properties:/opt/spark/conf/metrics.properties
-      - ./spark-warehouse:/opt/spark/spark-warehouse
-      - ./spark-events:/opt/spark/events
       - ./conf/spark-defaults.conf:/opt/spark/conf/spark-defaults.conf
     networks:
       - spark-network
 
   spark-worker-01:
-    image: apache/spark:3.5.7
-    platform: linux/amd64
-    command: >
-      bash -c "
-        /opt/spark/sbin/start-worker.sh spark://spark-master:7077 &&
-        tail -f /dev/null
-      "
+    <<: *spark-worker-common
+    depends_on:
+      - spark-master
     environment:
-      - SPARK_MODE=worker
-      - SPARK_WORKER_CORES=2
-      - SPARK_WORKER_MEMORY=2G
-      - SPARK_WORKER_WEBUI_PORT=8081
-      - SPARK_PUBLIC_DNS=localhost
-      - AWS_PROFILE=${AWS_PROFILE_NAME}
-      - AWS_REGION=${AWS_REGION}
-      - SPARK_METRICS_ON=true
+      <<: *spark-worker-env
+      SPARK_WORKER_WEBUI_PORT: 8081
     ports:
       - "8081:8081"
-    depends_on:
-      - spark-master
-    volumes:
-      - ~/.aws:/root/.aws:ro
-      - ./jars:/opt/spark/extra-jars
-      - ./conf/spark-metrics.properties:/opt/spark/conf/metrics.properties
-      - ./spark-warehouse:/opt/spark/spark-warehouse
-      - ./spark-events:/opt/spark/events
-      - ./conf/spark-defaults.conf:/opt/spark/conf/spark-defaults.conf
-    networks:
-      - spark-network
 
   spark-worker-02:
-    image: apache/spark:3.5.7
-    platform: linux/amd64
-    command: >
-      bash -c "
-        /opt/spark/sbin/start-worker.sh spark://spark-master:7077 &&
-        tail -f /dev/null
-      "
-    environment:
-      - SPARK_MODE=worker
-      - SPARK_WORKER_CORES=2
-      - SPARK_WORKER_MEMORY=2G
-      - SPARK_WORKER_WEBUI_PORT=8082
-      - SPARK_PUBLIC_DNS=localhost
-      - AWS_PROFILE=${AWS_PROFILE_NAME}
-      - AWS_REGION=${AWS_REGION}
-      - SPARK_METRICS_ON=true
-    ports:
-      - "8082:8082"
+    <<: *spark-worker-common
     depends_on:
       - spark-master
-    volumes:
-      - ~/.aws:/root/.aws:ro
-      - ./jars:/opt/spark/extra-jars
-      - ./conf/spark-metrics.properties:/opt/spark/conf/metrics.properties
-      - ./spark-warehouse:/opt/spark/spark-warehouse
-      - ./spark-events:/opt/spark/events
-      - ./conf/spark-defaults.conf:/opt/spark/conf/spark-defaults.conf
-    networks:
-      - spark-network
+    environment:
+      <<: *spark-worker-env
+      SPARK_WORKER_WEBUI_PORT: 8082
+    ports:
+      - "8082:8082"
 
+  spark-worker-03:
+    <<: *spark-worker-common
+    depends_on:
+      - spark-master
+    environment:
+      <<: *spark-worker-env
+      SPARK_WORKER_WEBUI_PORT: 8083
+    ports:
+      - "8083:8083"
+  # ======================
+  # Jupyter + PySpark Environment
+  # ======================
   jupyter:
-    image: apache/spark:3.5.7
-    platform: linux/amd64 
-    container_name: jupyter
-    hostname: localhost
-    user: root
-    command: >
-      bash -c "
-        apt-get update && apt-get install -y unzip curl less groff && \
-        curl 'https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip' -o '/tmp/awscliv2.zip' && \
-        unzip /tmp/awscliv2.zip -d /tmp && /tmp/aws/install && \
-        pip3 install --no-cache-dir jupyterlab pandas pyarrow boto3 pyspark && \
-        jupyter lab --ip=0.0.0.0 --port=8888 --no-browser --allow-root --NotebookApp.token=''
-      "
+    build:
+      context: ./JupyterDocker
     environment:
       - PYSPARK_PYTHON=python3
       - PYSPARK_DRIVER_PYTHON=jupyter
-      - PYSPARK_DRIVER_PYTHON_OPTS=lab --ip=0.0.0.0 --port=8888 --no-browser --allow-root
+      - PYSPARK_DRIVER_PYTHON_OPTS="lab --ip=0.0.0.0 --port=8888 --no-browser --allow-root"
+      - SPARK_HOME=/opt/spark
+      - PATH=/opt/spark/bin:$PATH
       - AWS_PROFILE=${AWS_PROFILE_NAME}
       - AWS_REGION=${AWS_REGION}
       - SPARK_MASTER=spark://spark-master:7077
       - HOME=/root
-    working_dir: /opt/workspace
+      - SPARK_PUBLIC_DNS=localhost
     volumes:
       - ./workspace:/opt/workspace
       - ~/.aws:/root/.aws:ro
@@ -128,6 +108,9 @@ services:
     networks:
       - spark-network
 
+  # ======================
+  # Spark History Server
+  # ======================
   spark-history-server:
     image: apache/spark:3.5.7
     platform: linux/amd64
@@ -138,48 +121,51 @@ services:
         tail -f /dev/null
       "
     environment:
-      - SPARK_HISTORY_OPTS="-Dspark.history.fs.logDirectory=file:///opt/spark/events"
+      - SPARK_HISTORY_OPTS=-Dspark.history.fs.logDirectory=file:///opt/spark/events
     ports:
       - "18080:18080" # Spark History Server Web UI
     volumes:
       - ./spark-events:/opt/spark/events
       - ./conf/spark-defaults.conf:/opt/spark/conf/spark-defaults.conf
-    networks:
-      - spark-network
     depends_on:
       - spark-master
+    networks:
+      - spark-network
 
-  # # Prometheus 설정
-  # prometheus: 
+  # ======================
+  # Optional: Prometheus & Grafana (Monitoring)
+  # ======================
+  # prometheus:
   #   image: prom/prometheus:latest
   #   container_name: prometheus
   #   volumes:
   #     - ./prometheus.yaml:/etc/prometheus/prometheus.yaml
-  #   command:
-  #     - '--config.file=/etc/prometheus/prometheus.yaml'
+  #   command: ["--config.file=/etc/prometheus/prometheus.yaml"]
   #   ports:
-  #     - "9090:9090" # Prometheus UI
-  #   networks:
-  #     - spark-network
+  #     - "9090:9090"
   #   depends_on:
   #     - spark-master
   #     - spark-worker-01
   #     - spark-worker-02
-
-  # # Grafana 설정
+  #   networks:
+  #     - spark-network
+  #
   # grafana:
   #   image: grafana/grafana:latest
   #   container_name: grafana
   #   ports:
-  #     - "3000:3000" # Grafana UI
-  #   networks:
-  #     - spark-network
-  #   depends_on:
-  #     - prometheus
+  #     - "3000:3000"
   #   environment:
   #     - GF_SECURITY_ADMIN_USER=admin
   #     - GF_SECURITY_ADMIN_PASSWORD=admin
+  #   depends_on:
+  #     - prometheus
+  #   networks:
+  #     - spark-network
 
+# ======================
+# Network
+# ======================
 networks:
   spark-network:
     driver: bridge
