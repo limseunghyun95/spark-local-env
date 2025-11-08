@@ -2,3 +2,4 @@
 .env
 spark-events/*
 workspace/.*
+*ipynb_checkpoints*
